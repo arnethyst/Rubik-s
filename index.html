@@ -1,0 +1,1278 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Polaris</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Noto+Sans+JP:wght@500;700;900&display=swap');
+        
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #0f172a;
+            font-family: 'Noto Sans JP', sans-serif;
+            touch-action: none;
+        }
+        .orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+        #webgl-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+        }
+        .ui-layer {
+            position: relative;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .interactive {
+            pointer-events: auto;
+        }
+        
+        @keyframes pop {
+            0% { transform: scale(0.8); opacity: 0; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .pop-anim {
+            animation: pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+
+        .floating-text {
+            position: absolute;
+            font-weight: 900;
+            font-size: 2.5rem;
+            pointer-events: none;
+            z-index: 50;
+            text-shadow: 0 0 15px rgba(255,255,255,0.8), 2px 2px 0 #000;
+            animation: floatUp 1.5s ease-out forwards;
+            white-space: nowrap;
+        }
+        @keyframes floatUp {
+            0% { transform: translateY(0) scale(0.5); opacity: 0; }
+            15% { transform: translateY(-20px) scale(1.2); opacity: 1; }
+            80% { transform: translateY(-60px) scale(1); opacity: 1; }
+            100% { transform: translateY(-80px) scale(0.8); opacity: 0; }
+        }
+
+        @keyframes shake {
+            0% { transform: translate3d(6px, 6px, 0); }
+            20% { transform: translate3d(-6px, -6px, 0); }
+            40% { transform: translate3d(6px, -6px, 0); }
+            60% { transform: translate3d(-6px, 6px, 0); }
+            80% { transform: translate3d(6px, 0, 0); }
+            100% { transform: translate3d(0, 0, 0); }
+        }
+        .shake {
+            animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+        }
+
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="w-screen h-screen flex flex-col">
+
+    <!-- BGMオーディオ要素 -->
+    <audio id="gameBgm" src="https://cdn.jsdelivr.net/gh/arnethyst/Rubik-s/Beneath_the_Gravity_Well.mp3" loop preload="auto"></audio>
+
+    <!-- 3D Canvas (背景画像設定) -->
+    <div id="webgl-container" style="background-image: url('https://cdn.jsdelivr.net/gh/arnethyst/Rubik-s/b05562c0-650e-4dcc-92cb-0a7696f3f855.jpeg'); background-size: cover; background-position: center;"></div>
+
+    <!-- タイトル画面 -->
+    <div id="titleScreen" class="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-900 bg-opacity-70 backdrop-blur-sm transition-opacity duration-500 interactive">
+        <div class="flex flex-col items-center pop-anim">
+            <h2 class="text-xl md:text-3xl font-bold text-slate-300 mb-2 tracking-widest orbitron">3D CUBE STRATEGY</h2>
+            <h1 class="text-6xl md:text-9xl font-black text-white mb-6 tracking-widest drop-shadow-[0_0_30px_rgba(255,255,255,0.6)] text-center leading-tight orbitron">
+                <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-400 drop-shadow-none" style="filter: drop-shadow(0px 0px 15px rgba(6,182,212,0.6));">POLARIS</span>
+            </h1>
+            
+            <p class="text-slate-200 mb-12 text-center text-sm md:text-base px-6 max-w-lg leading-relaxed bg-slate-800 bg-opacity-60 p-4 rounded-2xl border border-slate-600 shadow-xl">
+                3Dキューブにマークを置いて列を回し<br>
+                一直線に揃えて相手のHPを削り切れ！<br>
+                多彩なスキルを駆使した新感覚パズル対戦！
+            </p>
+            
+            <button id="startBtn" class="orbitron px-12 py-5 bg-gradient-to-r from-cyan-500 to-pink-500 hover:from-cyan-400 hover:to-pink-400 text-white text-2xl md:text-3xl font-black rounded-full shadow-[0_0_40px_rgba(6,182,212,0.4)] transform transition hover:scale-105 active:scale-95 border-4 border-white">
+                START
+            </button>
+        </div>
+    </div>
+
+    <!-- ゲームUIレイヤー (プレイ中のみ表示) -->
+    <div id="gameUI" class="ui-layer flex flex-col justify-between h-full w-full p-4 md:p-6 hidden">
+        
+        <div class="absolute top-4 right-4 md:top-6 md:right-6 z-50 interactive">
+            <button id="pauseBtnUI" class="w-12 h-12 bg-slate-800 bg-opacity-80 hover:bg-slate-700 text-white rounded-full flex items-center justify-center shadow-lg border-2 border-slate-500 transition-transform hover:scale-105 active:scale-95 text-xl">
+                ⏸
+            </button>
+        </div>
+
+        <div class="flex flex-col items-center w-full gap-4 mt-12 md:mt-0">
+            <div class="flex justify-between items-center w-full max-w-3xl gap-2 md:gap-6">
+                <!-- P1 HP -->
+                <div class="flex-1 bg-white bg-opacity-90 rounded-2xl p-2 md:p-3 border-l-8 border-cyan-500 shadow-xl transition-all duration-300" id="hpPanelP1">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="font-bold text-slate-800 text-sm md:text-base">◯ P1 <span id="buffP1" class="text-xs text-yellow-500"></span></span>
+                        <span class="font-bold text-cyan-500 text-lg md:text-xl" id="hpTextP1">100</span>
+                    </div>
+                    <div class="w-full bg-slate-200 h-3 md:h-5 rounded-full overflow-hidden border border-slate-300">
+                        <div id="hpBarP1" class="bg-cyan-500 h-full transition-all duration-300 ease-out" style="width: 100%;"></div>
+                    </div>
+                </div>
+                
+                <div class="font-black text-white text-xl md:text-4xl px-1 md:px-2" style="text-shadow: 0 4px 10px rgba(0,0,0,0.8);">VS</div>
+
+                <!-- P2 HP -->
+                <div class="flex-1 bg-white bg-opacity-90 rounded-2xl p-2 md:p-3 border-r-8 border-pink-500 shadow-xl transition-all duration-300" id="hpPanelP2">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="font-bold text-pink-500 text-lg md:text-xl" id="hpTextP2">100</span>
+                        <span class="font-bold text-slate-800 text-sm md:text-base"><span id="buffP2" class="text-xs text-yellow-500"></span> P2 ✕</span>
+                    </div>
+                    <div class="w-full bg-slate-200 h-3 md:h-5 rounded-full overflow-hidden border border-slate-300 flex justify-end">
+                        <div id="hpBarP2" class="bg-pink-500 h-full transition-all duration-300 ease-out" style="width: 100%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ターン情報 -->
+            <div class="bg-white bg-opacity-95 backdrop-blur-sm rounded-full px-4 md:px-6 py-2 shadow-lg border-4 flex items-center gap-3 transition-colors duration-300" id="statusPanel">
+                <div id="playerIcon" class="w-8 h-8 md:w-10 md:h-10 rounded-full flex items-center justify-center font-bold text-xl md:text-2xl text-white"></div>
+                <div class="flex flex-col">
+                    <span id="playerName" class="font-bold text-slate-800 text-sm md:text-lg leading-tight"></span>
+                    <span id="instructionText" class="text-slate-500 text-xs md:text-sm font-bold"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 左パレット (P1) -->
+        <div id="skillPaletteP1" class="absolute left-2 md:left-6 top-1/2 transform -translate-y-1/2 flex flex-col gap-2 md:gap-3 pointer-events-auto interactive z-20"></div>
+
+        <!-- 右パレット (P2) -->
+        <div id="skillPaletteP2" class="absolute right-2 md:right-6 top-1/2 transform -translate-y-1/2 flex flex-col gap-2 md:gap-3 pointer-events-auto interactive z-20"></div>
+
+        <!-- フッター（アクション） -->
+        <div class="flex flex-col items-center w-full pb-2 md:pb-6 gap-3 interactive pointer-events-none">
+            <button id="skipBtn" class="hidden pointer-events-auto px-8 py-3 bg-slate-800 hover:bg-slate-700 text-white text-base md:text-lg font-bold rounded-full shadow-2xl border-2 border-slate-600 transform transition hover:scale-105 active:scale-95">
+                回転させずに次へ
+            </button>
+        </div>
+    </div>
+
+    <!-- 共通ツールチップ（画面最前面に独立して配置） -->
+    <div id="globalTooltip" class="fixed hidden w-48 md:w-64 p-3 bg-slate-800 bg-opacity-95 text-white text-xs md:text-sm rounded-xl shadow-2xl border border-slate-600 z-[100] pointer-events-none text-left whitespace-normal leading-relaxed transition-opacity duration-200 opacity-0">
+        <div id="tooltipTitle" class="font-bold text-yellow-400 mb-1 border-b border-slate-600 pb-1"></div>
+        <div id="tooltipDesc" class="text-slate-200 mt-1"></div>
+    </div>
+
+    <!-- リザルト（ゲームオーバー）画面 -->
+    <div id="gameOverModal" class="absolute inset-0 z-50 flex items-center justify-center bg-black bg-opacity-80 backdrop-blur-md hidden interactive">
+        <div class="bg-white rounded-[2rem] p-8 md:p-12 flex flex-col items-center shadow-[0_0_50px_rgba(255,255,255,0.2)] pop-anim border-4 border-slate-200 text-center max-w-sm md:max-w-md w-full mx-4">
+            <h2 class="text-xl md:text-2xl font-bold text-slate-400 tracking-widest mb-1 orbitron">RESULT</h2>
+            <h1 id="resultTitle" class="text-5xl md:text-6xl font-black mb-4 orbitron">WINNER!</h1>
+            
+            <div id="resultIcon" class="w-24 h-24 md:w-28 md:h-28 rounded-full flex items-center justify-center font-bold text-6xl md:text-7xl text-white mb-6 shadow-inner ring-4 ring-offset-4 ring-offset-white">
+                ◯
+            </div>
+            
+            <p id="resultText" class="text-xl md:text-2xl text-slate-800 font-black mb-2">プレイヤー1の勝利！</p>
+            <p id="resultSubText" class="text-slate-500 font-bold mb-8">残りHP: <span id="resultHP">100</span></p>
+            
+            <div class="flex flex-col gap-3 w-full">
+                <button id="restartBtn" class="w-full py-4 bg-emerald-500 hover:bg-emerald-400 text-white text-lg md:text-xl font-black rounded-xl shadow-md transform transition hover:scale-105 active:scale-95">
+                    もう一度バトル
+                </button>
+                <button id="toTitleBtn" class="w-full py-4 bg-slate-200 hover:bg-slate-300 text-slate-700 text-lg md:text-xl font-bold rounded-xl shadow-md transform transition hover:scale-105 active:scale-95">
+                    タイトルへ戻る
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 一時停止画面 -->
+    <div id="pauseModal" class="absolute inset-0 z-50 flex items-center justify-center bg-black bg-opacity-80 backdrop-blur-md hidden interactive">
+        <div class="bg-slate-800 rounded-[2rem] p-8 md:p-12 flex flex-col items-center shadow-[0_0_50px_rgba(0,0,0,0.5)] border-4 border-slate-600 text-center max-w-sm md:max-w-md w-full mx-4">
+            <h1 class="text-4xl md:text-6xl font-black mb-8 text-white tracking-widest orbitron">PAUSE</h1>
+            
+            <div class="flex flex-col gap-3 w-full">
+                <button id="resumeBtn" class="w-full py-4 bg-cyan-500 hover:bg-cyan-400 text-white text-lg md:text-xl font-bold rounded-xl shadow-lg transform transition hover:scale-105 active:scale-95">
+                    ゲームに戻る
+                </button>
+                <button id="replayBtn" class="w-full py-4 bg-pink-500 hover:bg-pink-400 text-white text-lg md:text-xl font-bold rounded-xl shadow-lg transform transition hover:scale-105 active:scale-95">
+                    初めから (リプレイ)
+                </button>
+                <div class="w-full border-t border-slate-600 my-2"></div>
+                <button id="pauseToTitleBtn" class="w-full py-4 bg-slate-600 hover:bg-slate-500 text-white text-lg md:text-xl font-bold rounded-xl shadow-lg transform transition hover:scale-105 active:scale-95">
+                    タイトルへ戻る
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- 状態管理・定数 ---
+        const STATE = { TITLE: 'TITLE', PLAYING: 'PLAYING', GAMEOVER: 'GAMEOVER', PAUSED: 'PAUSED' };
+        const PHASE = { PLACE: 'PLACE', ROTATE: 'ROTATE', DESTROY_SELECT: 'DESTROY_SELECT', DESTROY_ANY_SELECT: 'DESTROY_ANY_SELECT' };
+        
+        // P1: Cyan, P2: Pink
+        const PLAYER = {
+            P1: { id: 'P1', mark: '◯', color: '#06b6d4', panelBorder: 'border-cyan-400' },
+            P2: { id: 'P2', mark: '✕', color: '#ec4899', panelBorder: 'border-pink-400' }
+        };
+
+        const SKILLS = {
+            NORMAL: { id: 'NORMAL', icon: '', label: '通常', cd: 0, desc: 'クールタイムなしで使える通常のマーク。' },
+            HEAL: { id: 'HEAL', icon: '✚', label: '回復', cd: 2, desc: '配置時：HPを20回復。<br>レーン時：さらにHPを30回復。' },
+            ATK: { id: 'ATK', icon: '▲', label: '攻撃', cd: 4, desc: '配置時：相手に10ダメージ。<br>レーン時：基礎ダメージに+30ダメージ。' },
+            DESTROY: { id: 'DESTROY', icon: '✴', label: '破壊', cd: 5, desc: '配置時：相手の通常マークを1つ選んで破壊。<br>レーン時：相手の好きなマークを1つ破壊。' },
+            PIERCE: { id: 'PIERCE', icon: '◎', label: '貫通', cd: 3, desc: '配置時：真裏のマスにも通常配置。<br>レーン時：空きマスに通常配置。' },
+            JAM: { id: 'JAM', icon: '⊘', label: '妨害', cd: 4, desc: '配置時：次の相手の回転を禁止にする。<br>レーン時：次の相手のターンをパスする。' },
+            ACCEL: { id: 'ACCEL', icon: '≫', label: '加速', cd: 4, desc: '配置時：自分のスキルCTをランダムで1減少。<br>レーン時：次の与えるダメージが+10。' }
+        };
+
+        const MAX_HP = 100;
+        let hpP1 = MAX_HP;
+        let hpP2 = MAX_HP;
+
+        // 手札とスキルの状態
+        let playerInventory = { P1: {}, P2: {} };
+        let skillCooldowns = { P1: {}, P2: {} };
+        let selectedSkillId = 'NORMAL';
+        
+        let disableNextRotation = { P1: false, P2: false };
+        let jamSkipTurn = false;
+        let nextDamageBuff = { P1: 0, P2: 0 };
+        let pendingDestroyAny = 0;
+
+        let comboCount = 0;
+        let isBonusTurn = false;
+
+        let gameState = STATE.TITLE;
+        let currentPhase = PHASE.PLACE;
+        let currentPlayer = PLAYER.P1;
+
+        // --- DOM要素 ---
+        const titleScreen = document.getElementById('titleScreen');
+        const startBtn = document.getElementById('startBtn');
+        const gameUI = document.getElementById('gameUI');
+
+        const statusPanel = document.getElementById('statusPanel');
+        const playerIcon = document.getElementById('playerIcon');
+        const playerName = document.getElementById('playerName');
+        const instructionText = document.getElementById('instructionText');
+        const skipBtn = document.getElementById('skipBtn');
+        const paletteP1 = document.getElementById('skillPaletteP1');
+        const paletteP2 = document.getElementById('skillPaletteP2');
+        
+        const gameOverModal = document.getElementById('gameOverModal');
+        const pauseModal = document.getElementById('pauseModal');
+        const resumeBtn = document.getElementById('resumeBtn');
+        const replayBtn = document.getElementById('replayBtn');
+        const pauseBtnUI = document.getElementById('pauseBtnUI');
+        const toTitleBtn = document.getElementById('toTitleBtn');
+        const pauseToTitleBtn = document.getElementById('pauseToTitleBtn');
+
+        const hpTextP1 = document.getElementById('hpTextP1');
+        const hpBarP1 = document.getElementById('hpBarP1');
+        const hpPanelP1 = document.getElementById('hpPanelP1');
+        const buffP1 = document.getElementById('buffP1');
+        
+        const hpTextP2 = document.getElementById('hpTextP2');
+        const hpBarP2 = document.getElementById('hpBarP2');
+        const hpPanelP2 = document.getElementById('hpPanelP2');
+        const buffP2 = document.getElementById('buffP2');
+
+        const globalTooltip = document.getElementById('globalTooltip');
+        const tooltipTitle = document.getElementById('tooltipTitle');
+        const tooltipDesc = document.getElementById('tooltipDesc');
+
+        // --- Three.js セットアップ ---
+        const container = document.getElementById('webgl-container');
+        const scene = new THREE.Scene();
+        // 透過させてCSSの背景画像を見せるため、シーンの背景色設定を削除
+        // scene.background = new THREE.Color('#0f172a');
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera.position.set(6, 6, 8);
+
+        // alpha: true を追加して背景を透過させる
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        container.appendChild(renderer.domElement);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.enablePan = false;
+        controls.minDistance = 5;
+        controls.maxDistance = 15;
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+        scene.add(ambientLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(10, 20, 10);
+        scene.add(dirLight);
+        const dirLight2 = new THREE.DirectionalLight(0xffffff, 0.4);
+        dirLight2.position.set(-10, -20, -10);
+        scene.add(dirLight2);
+
+        // --- テクスチャ生成とキャッシュ ---
+        function drawRoundRect(ctx, x, y, w, h, r) {
+            ctx.beginPath();
+            ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+            ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r);
+            ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+            ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath(); ctx.fill();
+        }
+
+        const textureCache = {};
+
+        function getFaceTexture(owner, skillId) {
+            const cacheKey = `${owner}_${skillId}`;
+            if (textureCache[cacheKey]) return textureCache[cacheKey];
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.fillStyle = '#1e293b'; 
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.fillStyle = '#f8fafc'; 
+            drawRoundRect(ctx, 8, 8, 240, 240, 20);
+
+            if (owner === 'P1') {
+                ctx.strokeStyle = PLAYER.P1.color;
+                ctx.lineWidth = 28;
+                ctx.beginPath(); ctx.arc(128, 128, 70, 0, Math.PI * 2); ctx.stroke();
+            } else if (owner === 'P2') {
+                ctx.strokeStyle = PLAYER.P2.color;
+                ctx.lineWidth = 28;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(68, 68); ctx.lineTo(188, 188);
+                ctx.moveTo(188, 68); ctx.lineTo(68, 188);
+                ctx.stroke();
+            }
+            
+            if (skillId && skillId !== 'NORMAL') {
+                const icon = SKILLS[skillId].icon;
+                ctx.fillStyle = owner === 'P1' ? PLAYER.P1.color : PLAYER.P2.color;
+                ctx.font = 'bold 50px "M PLUS Rounded 1c"';
+                ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+                ctx.fillText(icon, 235, 235);
+            }
+            
+            const tex = new THREE.CanvasTexture(canvas);
+            textureCache[cacheKey] = tex;
+            return tex;
+        }
+
+        const texBlank = (() => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 256;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#1e293b'; ctx.fillRect(0, 0, 256, 256);
+            ctx.fillStyle = '#f8fafc'; drawRoundRect(ctx, 8, 8, 240, 240, 20);
+            return new THREE.CanvasTexture(canvas);
+        })();
+
+        // --- キューブ生成 ---
+        const cubeGroup = new THREE.Group();
+        scene.add(cubeGroup);
+        
+        let cubicles = [];
+        const CUBE_SIZE = 1;
+        const SPACING = 1.05;
+
+        const faceNormals = [
+            new THREE.Vector3(1,0,0), new THREE.Vector3(-1,0,0),
+            new THREE.Vector3(0,1,0), new THREE.Vector3(0,-1,0),
+            new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,-1)
+        ];
+
+        function initCube() {
+            while(cubeGroup.children.length > 0) cubeGroup.remove(cubeGroup.children[0]);
+            cubicles = [];
+
+            const geometry = new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
+            for (let x = -1; x <= 1; x++) {
+                for (let y = -1; y <= 1; y++) {
+                    for (let z = -1; z <= 1; z++) {
+                        let materials = [];
+                        let facesData = [];
+                        for (let i = 0; i < 6; i++) {
+                            materials.push(new THREE.MeshStandardMaterial({ map: texBlank, roughness: 0.3, metalness: 0.1 }));
+                            facesData.push({ owner: null, skill: null, localNormal: faceNormals[i].clone() });
+                        }
+                        let mesh = new THREE.Mesh(geometry, materials);
+                        mesh.position.set(x * SPACING, y * SPACING, z * SPACING);
+                        mesh.userData = { faces: facesData };
+                        cubicles.push(mesh);
+                        cubeGroup.add(mesh);
+                    }
+                }
+            }
+        }
+
+        // --- ツールチップ制御 ---
+        function showTooltip(btn, id, playerId) {
+            tooltipTitle.innerHTML = `${SKILLS[id].label} ${id !== 'NORMAL' ? `(CT: ${SKILLS[id].cd})` : ''}`;
+            tooltipDesc.innerHTML = SKILLS[id].desc;
+            
+            globalTooltip.classList.remove('hidden');
+            void globalTooltip.offsetWidth;
+            globalTooltip.classList.remove('opacity-0');
+            globalTooltip.classList.add('opacity-100');
+            
+            const rect = btn.getBoundingClientRect();
+            
+            if (playerId === 'P1') {
+                globalTooltip.style.left = `${rect.right + 15}px`;
+                globalTooltip.style.right = 'auto';
+            } else {
+                globalTooltip.style.right = `${window.innerWidth - rect.left + 15}px`;
+                globalTooltip.style.left = 'auto';
+            }
+            
+            globalTooltip.style.top = `${rect.top + rect.height / 2}px`;
+            globalTooltip.style.transform = 'translateY(-50%)';
+        }
+
+        function hideTooltip() {
+            globalTooltip.classList.remove('opacity-100');
+            globalTooltip.classList.add('opacity-0');
+            setTimeout(() => {
+                if (globalTooltip.classList.contains('opacity-0')) {
+                    globalTooltip.classList.add('hidden');
+                }
+            }, 200);
+        }
+
+        // --- アプリの画面遷移 ---
+        function showTitleScreen() {
+            initCube();
+            gameState = STATE.TITLE;
+            titleScreen.classList.remove('hidden');
+            gameUI.classList.add('hidden');
+            gameOverModal.classList.add('hidden');
+            pauseModal.classList.add('hidden');
+
+            // タイトルに戻ったときにBGMを停止
+            const bgm = document.getElementById('gameBgm');
+            bgm.pause();
+            bgm.currentTime = 0;
+        }
+
+        function startGame() {
+            titleScreen.classList.add('hidden');
+            gameOverModal.classList.add('hidden');
+            pauseModal.classList.add('hidden');
+            gameUI.classList.remove('hidden');
+            
+            cubeGroup.rotation.set(0, 0, 0);
+            resetGameState();
+
+            // ゲーム開始時にBGMを再生
+            const bgm = document.getElementById('gameBgm');
+            bgm.volume = 0.3; // プレイの邪魔にならないよう音量を少し小さめに設定
+            bgm.play().catch(e => console.warn('自動再生がブラウザにブロックされました:', e));
+        }
+
+        function resetGameState() {
+            initCube();
+            hpP1 = MAX_HP; hpP2 = MAX_HP;
+            comboCount = 0; isBonusTurn = false;
+            disableNextRotation = { P1: false, P2: false };
+            jamSkipTurn = false;
+            nextDamageBuff = { P1: 0, P2: 0 };
+            pendingDestroyAny = 0;
+            
+            playerInventory.P1 = { NORMAL: Infinity, HEAL: 1, ATK: 1, DESTROY: 1, PIERCE: 1, JAM: 1, ACCEL: 1 };
+            playerInventory.P2 = { NORMAL: Infinity, HEAL: 1, ATK: 1, DESTROY: 1, PIERCE: 1, JAM: 1, ACCEL: 1 };
+
+            Object.keys(SKILLS).forEach(k => {
+                skillCooldowns.P1[k] = 0;
+                skillCooldowns.P2[k] = 0;
+            });
+            
+            gameState = STATE.PLAYING;
+            currentPhase = PHASE.PLACE;
+            currentPlayer = PLAYER.P1;
+            selectedSkillId = 'NORMAL';
+            
+            updateUI();
+        }
+
+        // --- UI・状態更新 ---
+        function reduceCooldown(playerId) {
+            Object.keys(skillCooldowns[playerId]).forEach(key => {
+                if (skillCooldowns[playerId][key] > 0) skillCooldowns[playerId][key]--;
+            });
+        }
+
+        function renderSkillPalette() {
+            paletteP1.innerHTML = '';
+            paletteP2.innerHTML = '';
+
+            ['P1', 'P2'].forEach(playerId => {
+                const palette = playerId === 'P1' ? paletteP1 : paletteP2;
+                const isCurrent = (playerId === currentPlayer.id && (currentPhase === PHASE.PLACE || currentPhase === PHASE.DESTROY_SELECT || currentPhase === PHASE.DESTROY_ANY_SELECT));
+
+                Object.keys(SKILLS).forEach(id => {
+                    const ct = skillCooldowns[playerId][id];
+                    const btn = document.createElement('button');
+                    
+                    let baseClass = `flex items-center justify-center w-11 h-11 md:w-14 md:h-14 rounded-full font-bold text-xl md:text-3xl border-2 shadow-md transition-all hover:z-50 `;
+                    
+                    // Cyan vs Pink
+                    if (playerId === 'P1') {
+                        baseClass += 'bg-cyan-100 text-cyan-800 border-cyan-300 ';
+                    } else {
+                        baseClass += 'bg-pink-100 text-pink-800 border-pink-300 ';
+                    }
+
+                    if (!isCurrent) {
+                        btn.classList.add('opacity-50', 'cursor-not-allowed');
+                    } else {
+                        if (ct > 0) {
+                            btn.classList.add('opacity-40', 'cursor-not-allowed', 'grayscale');
+                        } else if (id === selectedSkillId) {
+                            let translate = playerId === 'P1' ? 'translate-x-2' : '-translate-x-2';
+                            btn.classList.add('ring-4', 'ring-yellow-400', 'transform', translate, 'shadow-lg');
+                        } else {
+                            btn.classList.add('hover:bg-white');
+                        }
+                    }
+
+                    btn.className += baseClass;
+                    btn.innerHTML = `<span>${SKILLS[id].icon}</span>`;
+                    
+                    if (id !== 'NORMAL' && ct > 0) {
+                        btn.innerHTML += `<span class="absolute -bottom-1 -right-1 md:-bottom-1 md:-right-1 text-[9px] md:text-xs bg-slate-800 text-white rounded-full px-1.5 py-0.5 border border-slate-500 leading-none">CT:${ct}</span>`;
+                    }
+
+                    btn.addEventListener('mouseenter', () => showTooltip(btn, id, playerId));
+                    btn.addEventListener('mouseleave', hideTooltip);
+                    
+                    btn.addEventListener('touchstart', (e) => {
+                        showTooltip(btn, id, playerId);
+                        if (isCurrent && ct === 0 && currentPhase === PHASE.PLACE) {
+                            selectedSkillId = id;
+                            renderSkillPalette();
+                        }
+                    }, {passive: true});
+                    
+                    btn.addEventListener('touchend', () => {
+                        setTimeout(hideTooltip, 1500); 
+                    });
+
+                    if (isCurrent && ct === 0 && currentPhase === PHASE.PLACE) {
+                        btn.addEventListener('click', () => {
+                            selectedSkillId = id;
+                            renderSkillPalette();
+                        });
+                    }
+
+                    palette.appendChild(btn);
+                });
+            });
+        }
+
+        function updateUI() {
+            statusPanel.className = `bg-white bg-opacity-95 backdrop-blur-sm rounded-full px-4 md:px-6 py-2 shadow-lg border-4 flex items-center gap-3 transition-colors duration-300 ${currentPlayer.panelBorder}`;
+            playerIcon.innerText = currentPlayer.mark;
+            playerIcon.style.backgroundColor = currentPlayer.color;
+            playerName.innerText = `プレイヤー${currentPlayer.id === 'P1' ? '1' : '2'}のターン`;
+            playerName.style.color = currentPlayer.color;
+
+            if (isBonusTurn) {
+                instructionText.innerHTML = `<span class="text-yellow-400 font-black">COMBO ${comboCount}!</span> <span class="text-xs">連続配置(回転不可)</span>`;
+                skipBtn.classList.add('hidden');
+            } else {
+                if (currentPhase === PHASE.PLACE) {
+                    instructionText.innerText = "マーク(スキル)を選択し配置";
+                    skipBtn.classList.add('hidden');
+                } else if (currentPhase === PHASE.DESTROY_SELECT) {
+                    instructionText.innerHTML = "<span class='text-red-500 font-bold'>破壊する相手の通常マークを選択</span>";
+                    skipBtn.innerText = "破壊をキャンセル";
+                    skipBtn.classList.remove('hidden');
+                } else if (currentPhase === PHASE.DESTROY_ANY_SELECT) {
+                    instructionText.innerHTML = `<span class='text-red-500 font-bold'>破壊する相手のマークを選択 (残:${pendingDestroyAny})</span>`;
+                    skipBtn.innerText = "破壊をキャンセル";
+                    skipBtn.classList.remove('hidden');
+                } else {
+                    instructionText.innerText = "面をスワイプして列を回転";
+                    skipBtn.innerText = "回転させずに次へ";
+                    skipBtn.classList.remove('hidden');
+                }
+            }
+
+            renderSkillPalette();
+
+            hpTextP1.innerText = Math.max(0, hpP1);
+            hpBarP1.style.width = `${Math.max(0, (hpP1 / MAX_HP) * 100)}%`;
+            hpTextP2.innerText = Math.max(0, hpP2);
+            hpBarP2.style.width = `${Math.max(0, (hpP2 / MAX_HP) * 100)}%`;
+
+            hpBarP1.style.backgroundColor = hpP1 <= 30 ? '#0891b2' : '#06b6d4'; // cyan-600 : cyan-500
+            hpBarP2.style.backgroundColor = hpP2 <= 30 ? '#db2777' : '#ec4899'; // pink-600 : pink-500
+
+            buffP1.innerText = nextDamageBuff.P1 > 0 ? `[ATK +${nextDamageBuff.P1}]` : '';
+            buffP2.innerText = nextDamageBuff.P2 > 0 ? `[ATK +${nextDamageBuff.P2}]` : '';
+
+            if (currentPlayer.id === 'P1') {
+                hpPanelP1.style.transform = 'scale(1.05)'; hpPanelP2.style.transform = 'scale(0.95)';
+                hpPanelP2.style.opacity = '0.7'; hpPanelP1.style.opacity = '1';
+            } else {
+                hpPanelP2.style.transform = 'scale(1.05)'; hpPanelP1.style.transform = 'scale(0.95)';
+                hpPanelP1.style.opacity = '0.7'; hpPanelP2.style.opacity = '1';
+            }
+        }
+
+        function showFloatingText(text, player, duration = 1500) {
+            const el = document.createElement('div');
+            el.className = 'floating-text';
+            el.innerText = text;
+            el.style.color = player === 'P1' ? '#06b6d4' : (player === 'P2' ? '#ec4899' : '#fbbf24');
+            el.style.left = player === 'P1' ? '20%' : (player === 'P2' ? '70%' : '45%');
+            el.style.top = '40%';
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), duration);
+        }
+
+        // --- 外側の面かの判定 ---
+        const facesToDecide = [
+            { axis: 'x', val: SPACING, normal: new THREE.Vector3(1,0,0) },
+            { axis: 'x', val: -SPACING, normal: new THREE.Vector3(-1,0,0) },
+            { axis: 'y', val: SPACING, normal: new THREE.Vector3(0,1,0) },
+            { axis: 'y', val: -SPACING, normal: new THREE.Vector3(0,-1,0) },
+            { axis: 'z', val: SPACING, normal: new THREE.Vector3(0,0,1) },
+            { axis: 'z', val: -SPACING, normal: new THREE.Vector3(0,0,-1) }
+        ];
+
+        function isOuterFace(cubicle, localNormal) {
+            let rotMat = new THREE.Matrix4().extractRotation(cubicle.matrixWorld);
+            let nWorld = localNormal.clone().applyMatrix4(rotMat).round();
+            for (let f of facesToDecide) {
+                if (nWorld.equals(f.normal) && Math.abs(cubicle.position[f.axis] - f.val) < 0.1) return true;
+            }
+            return false;
+        }
+
+        // --- スキル発動処理 ---
+        function applyOnPlaceSkill(skillId, player, obj, matIndex) {
+            if (skillId === 'HEAL') {
+                if (player === 'P1') hpP1 = Math.min(MAX_HP, hpP1 + 20);
+                else hpP2 = Math.min(MAX_HP, hpP2 + 20);
+                showFloatingText("HEAL +20!", player);
+            } 
+            else if (skillId === 'ATK') {
+                let opponent = player === 'P1' ? 'P2' : 'P1';
+                if (opponent === 'P1') { hpP1 -= 10; showFloatingText("-10", 'P1'); }
+                else { hpP2 -= 10; showFloatingText("-10", 'P2'); }
+                document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake');
+            }
+            else if (skillId === 'JAM') {
+                let opponent = player === 'P1' ? 'P2' : 'P1';
+                disableNextRotation[opponent] = true;
+                showFloatingText("JAM!", player);
+            }
+            else if (skillId === 'ACCEL') {
+                let cds = skillCooldowns[player];
+                let activeCds = Object.keys(cds).filter(k => cds[k] > 0);
+                if (activeCds.length > 0) {
+                    let target = activeCds[Math.floor(Math.random() * activeCds.length)];
+                    skillCooldowns[player][target]--;
+                    showFloatingText(`CT -1`, player);
+                } else {
+                    showFloatingText(`NO CT`, player);
+                }
+            }
+            else if (skillId === 'PIERCE') {
+                let localNormal = obj.userData.faces[matIndex].localNormal;
+                let rotMat = new THREE.Matrix4().extractRotation(obj.matrixWorld);
+                let nWorld = localNormal.clone().applyMatrix4(rotMat).round();
+                
+                let backPos = obj.position.clone().sub(nWorld.clone().multiplyScalar(2 * SPACING));
+                let backNormal = nWorld.clone().negate();
+
+                let targetCubicle = cubicles.find(c => c.position.distanceTo(backPos) < 0.1);
+                if (targetCubicle) {
+                    let targetRotMat = new THREE.Matrix4().extractRotation(targetCubicle.matrixWorld);
+                    for (let i = 0; i < 6; i++) {
+                        let targetNWorld = targetCubicle.userData.faces[i].localNormal.clone().applyMatrix4(targetRotMat).round();
+                        if (targetNWorld.equals(backNormal)) {
+                            if (targetCubicle.userData.faces[i].owner === null) {
+                                targetCubicle.userData.faces[i].owner = player;
+                                targetCubicle.userData.faces[i].skill = 'NORMAL';
+                                targetCubicle.material[i].map = getFaceTexture(player, 'NORMAL');
+                                targetCubicle.material[i].needsUpdate = true;
+                                showFloatingText("PIERCE!", player);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        function applyPierceRandomSkill(player, count) {
+            for (let k = 0; k < count; k++) {
+                let emptyFaces = [];
+                for (let c of cubicles) {
+                    for (let i = 0; i < 6; i++) {
+                        let face = c.userData.faces[i];
+                        if (face.owner === null && isOuterFace(c, face.localNormal)) {
+                            emptyFaces.push({ c, i });
+                        }
+                    }
+                }
+                if (emptyFaces.length > 0) {
+                    let t = emptyFaces[Math.floor(Math.random() * emptyFaces.length)];
+                    t.c.userData.faces[t.i].owner = player;
+                    t.c.userData.faces[t.i].skill = 'NORMAL';
+                    t.c.material[t.i].map = getFaceTexture(player, 'NORMAL');
+                    t.c.material[t.i].needsUpdate = true;
+                    showFloatingText("RE-PLACE!", player);
+                }
+            }
+        }
+
+        // --- マッチ（連鎖）とダメージ判定 ---
+        function checkMatches() {
+            let facesToClear = new Set();
+            let p1Lines = 0, p2Lines = 0;
+            const winLines = [ [0,1,2], [3,4,5], [6,7,8], [0,3,6], [1,4,7], [2,5,8], [0,4,8], [2,4,6] ];
+
+            for (let face of facesToDecide) {
+                let faceCubicles = cubicles.filter(c => Math.abs(c.position[face.axis] - face.val) < 0.1);
+                if (faceCubicles.length !== 9) continue;
+                
+                let grid = new Array(9).fill(null);
+                let faceDataList = new Array(9).fill(null);
+                
+                faceCubicles.forEach(c => {
+                    let rotMat = new THREE.Matrix4().extractRotation(c.matrixWorld);
+                    for (let i = 0; i < 6; i++) {
+                        let nWorld = c.userData.faces[i].localNormal.clone().applyMatrix4(rotMat).round();
+                        if (nWorld.equals(face.normal)) {
+                            let u, v;
+                            if (face.axis === 'x') { u = c.position.z; v = c.position.y; }
+                            if (face.axis === 'y') { u = c.position.x; v = c.position.z; }
+                            if (face.axis === 'z') { u = c.position.x; v = c.position.y; }
+                            
+                            let idx = (Math.round(v / SPACING) + 1) * 3 + (Math.round(u / SPACING) + 1);
+                            grid[idx] = c.userData.faces[i].owner;
+                            faceDataList[idx] = { cubicle: c, faceIndex: i };
+                            break;
+                        }
+                    }
+                });
+                
+                for (let line of winLines) {
+                    const [a, b, c] = line;
+                    if (grid[a] && grid[a] === grid[b] && grid[a] === grid[c]) {
+                        if (grid[a] === 'P1') p1Lines++;
+                        if (grid[a] === 'P2') p2Lines++;
+                        facesToClear.add(faceDataList[a]); facesToClear.add(faceDataList[b]); facesToClear.add(faceDataList[c]);
+                    }
+                }
+            }
+
+            let activeSkillsP1 = { HEAL: 0, ATK: 0, PIERCE: 0, DESTROY: 0, JAM: 0, ACCEL: 0 };
+            let activeSkillsP2 = { HEAL: 0, ATK: 0, PIERCE: 0, DESTROY: 0, JAM: 0, ACCEL: 0 };
+            
+            Array.from(facesToClear).forEach(data => {
+                let owner = data.cubicle.userData.faces[data.faceIndex].owner;
+                let skill = data.cubicle.userData.faces[data.faceIndex].skill;
+                if (skill && activeSkillsP1[skill] !== undefined) {
+                    if (owner === 'P1') activeSkillsP1[skill]++;
+                    else activeSkillsP2[skill]++;
+                }
+            });
+
+            return { 
+                hasMatch: facesToClear.size > 0, 
+                facesToClear: Array.from(facesToClear), 
+                p1Lines, p2Lines, 
+                activeSkillsP1, activeSkillsP2 
+            };
+        }
+
+        async function handleMatches(matchResult) {
+            isAnimating = true;
+
+            matchResult.facesToClear.forEach(data => {
+                data.cubicle.material[data.faceIndex].color.setHex(0xffffaa);
+            });
+            await new Promise(r => setTimeout(r, 400));
+
+            matchResult.facesToClear.forEach(data => {
+                data.cubicle.material[data.faceIndex].color.setHex(0xffffff);
+                data.cubicle.userData.faces[data.faceIndex].owner = null;
+                data.cubicle.userData.faces[data.faceIndex].skill = null;
+                data.cubicle.material[data.faceIndex].map = texBlank;
+                data.cubicle.material[data.faceIndex].needsUpdate = true;
+            });
+
+            let shake = false;
+            let dmgToP1 = (matchResult.p2Lines > 0 ? 20 + (matchResult.p2Lines-1)*30 + comboCount*15 : 0) 
+                        + (matchResult.activeSkillsP2.ATK > 0 ? 30 * matchResult.activeSkillsP2.ATK : 0)
+                        + (matchResult.p2Lines > 0 ? nextDamageBuff.P2 : 0);
+            
+            let dmgToP2 = (matchResult.p1Lines > 0 ? 20 + (matchResult.p1Lines-1)*30 + comboCount*15 : 0) 
+                        + (matchResult.activeSkillsP1.ATK > 0 ? 30 * matchResult.activeSkillsP1.ATK : 0)
+                        + (matchResult.p1Lines > 0 ? nextDamageBuff.P1 : 0);
+
+            if (matchResult.p2Lines > 0) nextDamageBuff.P2 = 0;
+            if (matchResult.p1Lines > 0) nextDamageBuff.P1 = 0;
+
+            if (dmgToP1 > 0) { hpP1 -= dmgToP1; showFloatingText(`-${dmgToP1}`, 'P1'); shake = true; }
+            if (dmgToP2 > 0) { hpP2 -= dmgToP2; showFloatingText(`-${dmgToP2}`, 'P2'); shake = true; }
+            if (shake) { document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake'); }
+
+            if (matchResult.activeSkillsP1.HEAL > 0) { hpP1 = Math.min(MAX_HP, hpP1 + 30); showFloatingText('HEAL +30!', 'P1'); }
+            if (matchResult.activeSkillsP2.HEAL > 0) { hpP2 = Math.min(MAX_HP, hpP2 + 30); showFloatingText('HEAL +30!', 'P2'); }
+
+            if (matchResult.activeSkillsP1.ACCEL > 0) { nextDamageBuff.P1 += 10 * matchResult.activeSkillsP1.ACCEL; showFloatingText("ATK BUFF +10", 'P1'); }
+            if (matchResult.activeSkillsP2.ACCEL > 0) { nextDamageBuff.P2 += 10 * matchResult.activeSkillsP2.ACCEL; showFloatingText("ATK BUFF +10", 'P2'); }
+
+            if (matchResult.activeSkillsP1.PIERCE > 0) applyPierceRandomSkill('P1', matchResult.activeSkillsP1.PIERCE);
+            if (matchResult.activeSkillsP2.PIERCE > 0) applyPierceRandomSkill('P2', matchResult.activeSkillsP2.PIERCE);
+
+            if (matchResult.activeSkillsP1.JAM > 0 && currentPlayer.id === 'P1') jamSkipTurn = true;
+            if (matchResult.activeSkillsP2.JAM > 0 && currentPlayer.id === 'P2') jamSkipTurn = true;
+
+            if (matchResult.activeSkillsP1.DESTROY > 0 && currentPlayer.id === 'P1') pendingDestroyAny += matchResult.activeSkillsP1.DESTROY;
+            if (matchResult.activeSkillsP2.DESTROY > 0 && currentPlayer.id === 'P2') pendingDestroyAny += matchResult.activeSkillsP2.DESTROY;
+
+            updateUI();
+            await new Promise(r => setTimeout(r, 800));
+            isAnimating = false;
+
+            if (hpP1 <= 0 && hpP2 <= 0) handleGameEnd('DRAW');
+            else if (hpP1 <= 0) handleGameEnd('P2');
+            else if (hpP2 <= 0) handleGameEnd('P1');
+            else {
+                isBonusTurn = true;
+                comboCount++;
+                
+                if (pendingDestroyAny > 0) {
+                    currentPhase = PHASE.DESTROY_ANY_SELECT;
+                } else {
+                    currentPhase = PHASE.PLACE;
+                }
+                
+                selectedSkillId = 'NORMAL';
+                updateUI();
+            }
+        }
+
+        function checkDrawStatus() {
+            let isFull = true;
+            for(let c of cubicles) {
+                let rotMat = new THREE.Matrix4().extractRotation(c.matrixWorld);
+                for(let i=0; i<6; i++) {
+                    let nWorld = c.userData.faces[i].localNormal.clone().applyMatrix4(rotMat).round();
+                    let isOuter = false;
+                    for(let f of facesToDecide) {
+                        if(nWorld.equals(f.normal) && Math.abs(c.position[f.axis] - f.val) < 0.1) { isOuter = true; break; }
+                    }
+                    if(isOuter && c.userData.faces[i].owner === null) { isFull = false; break; }
+                }
+                if(!isFull) break;
+            }
+            return isFull;
+        }
+
+        function nextPhaseProcess() {
+            let matchResult = checkMatches();
+            if (matchResult.hasMatch) {
+                handleMatches(matchResult);
+            } else {
+                proceedToNextPhase();
+            }
+        }
+
+        function proceedToNextPhase() {
+            if (checkDrawStatus()) {
+                if (hpP1 > hpP2) handleGameEnd('P1');
+                else if (hpP2 > hpP1) handleGameEnd('P2');
+                else handleGameEnd('DRAW');
+                return;
+            }
+
+            if (currentPhase === PHASE.PLACE || currentPhase === PHASE.DESTROY_SELECT || currentPhase === PHASE.DESTROY_ANY_SELECT) {
+                
+                if (currentPhase === PHASE.DESTROY_ANY_SELECT && pendingDestroyAny > 0) {
+                    return;
+                }
+
+                if (isBonusTurn) {
+                    isBonusTurn = false;
+                    comboCount = 0;
+                    
+                    if (jamSkipTurn) {
+                        jamSkipTurn = false;
+                        showFloatingText("TURN SKIPPED!", currentPlayer.id === 'P1' ? 'P2' : 'P1');
+                        currentPhase = PHASE.PLACE;
+                        reduceCooldown(currentPlayer.id);
+                    } else {
+                        currentPhase = PHASE.PLACE;
+                        currentPlayer = currentPlayer === PLAYER.P1 ? PLAYER.P2 : PLAYER.P1;
+                        reduceCooldown(currentPlayer.id);
+                    }
+                } else {
+                    if (disableNextRotation[currentPlayer.id]) {
+                        disableNextRotation[currentPlayer.id] = false;
+                        showFloatingText("ROTATION BLOCKED!", currentPlayer.id);
+                        currentPhase = PHASE.PLACE;
+                        currentPlayer = currentPlayer === PLAYER.P1 ? PLAYER.P2 : PLAYER.P1;
+                        reduceCooldown(currentPlayer.id);
+                    } else {
+                        currentPhase = PHASE.ROTATE;
+                    }
+                }
+            } else { // ROTATE
+                currentPhase = PHASE.PLACE;
+                currentPlayer = currentPlayer === PLAYER.P1 ? PLAYER.P2 : PLAYER.P1;
+                reduceCooldown(currentPlayer.id);
+            }
+            selectedSkillId = 'NORMAL';
+            updateUI();
+        }
+
+        function handleGameEnd(winnerStr) {
+            gameState = STATE.GAMEOVER;
+            const resTitle = document.getElementById('resultTitle');
+            const resIcon = document.getElementById('resultIcon');
+            const resText = document.getElementById('resultText');
+            const resHP = document.getElementById('resultHP');
+
+            if (winnerStr === 'DRAW') {
+                resTitle.innerText = "DRAW";
+                resTitle.className = "text-5xl md:text-6xl font-black mb-4 text-slate-500";
+                resIcon.innerText = "△";
+                resIcon.className = "w-24 h-24 md:w-28 md:h-28 rounded-full flex items-center justify-center font-bold text-6xl md:text-7xl text-white mb-6 shadow-inner ring-4 ring-offset-4 ring-offset-slate-800 bg-slate-400";
+                resText.innerText = "引き分けです！";
+                document.getElementById('resultSubText').classList.add('hidden');
+            } else {
+                let winner = winnerStr === 'P1' ? PLAYER.P1 : PLAYER.P2;
+                resTitle.innerText = "WINNER!";
+                resTitle.className = "text-5xl md:text-6xl font-black mb-4 text-yellow-400";
+                resIcon.innerText = winner.mark;
+                resIcon.className = `w-24 h-24 md:w-28 md:h-28 rounded-full flex items-center justify-center font-bold text-6xl md:text-7xl text-white mb-6 shadow-inner ring-4 ring-offset-4 ring-offset-slate-800`;
+                resIcon.style.backgroundColor = winner.color;
+                resIcon.style.ringColor = winner.color;
+                
+                resText.innerText = `プレイヤー${winner.id === 'P1' ? '1' : '2'}の勝利！`;
+                resHP.innerText = winner.id === 'P1' ? Math.max(0, hpP1) : Math.max(0, hpP2);
+                document.getElementById('resultSubText').classList.remove('hidden');
+            }
+            gameOverModal.classList.remove('hidden');
+        }
+
+        function togglePause() {
+            if (gameState === STATE.PLAYING) {
+                gameState = STATE.PAUSED;
+                pauseModal.classList.remove('hidden');
+            } else if (gameState === STATE.PAUSED) {
+                gameState = STATE.PLAYING;
+                pauseModal.classList.add('hidden');
+            }
+        }
+
+        // --- 操作ロジック ---
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+        let isAnimating = false;
+        let downPos = { x: 0, y: 0 };
+        
+        let isDraggingCube = false, isRotatingLayer = false;
+        let dragStartPointWorld = null;
+        const dragPlane = new THREE.Plane();
+        let intersectedCubicle = null, intersectedFaceNormal = null, bestDir = null, rotationAxis = null, rotationAngle = 0;
+        const rotationGroup = new THREE.Group();
+        scene.add(rotationGroup);
+
+        function snapCubicle(cubicle) {
+            cubicle.position.x = Math.round(cubicle.position.x / SPACING) * SPACING;
+            cubicle.position.y = Math.round(cubicle.position.y / SPACING) * SPACING;
+            cubicle.position.z = Math.round(cubicle.position.z / SPACING) * SPACING;
+            let mat = new THREE.Matrix4().makeRotationFromQuaternion(cubicle.quaternion);
+            for(let i=0; i<16; i++) mat.elements[i] = Math.round(mat.elements[i]);
+            cubicle.quaternion.setFromRotationMatrix(mat);
+        }
+
+        window.addEventListener('pointerdown', (e) => {
+            if (isAnimating || gameState !== STATE.PLAYING || e.target.tagName === 'BUTTON') return;
+
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            let intersects = raycaster.intersectObjects(cubicles);
+
+            if (currentPhase === PHASE.ROTATE) {
+                if (intersects.length > 0) {
+                    controls.enabled = false;
+                    isDraggingCube = true;
+                    intersectedCubicle = intersects[0].object;
+                    intersectedFaceNormal = intersects[0].face.normal.clone().applyMatrix4(new THREE.Matrix4().extractRotation(intersectedCubicle.matrixWorld)).round();
+                    dragStartPointWorld = intersects[0].point.clone();
+                    dragPlane.setFromNormalAndCoplanarPoint(intersectedFaceNormal, dragStartPointWorld);
+                    isRotatingLayer = false;
+                } else controls.enabled = true;
+            } else if (currentPhase === PHASE.PLACE || currentPhase === PHASE.DESTROY_SELECT || currentPhase === PHASE.DESTROY_ANY_SELECT) {
+                controls.enabled = true;
+                isDraggingCube = false;
+                downPos = { x: e.clientX, y: e.clientY };
+            }
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            if (!isDraggingCube || isAnimating || gameState !== STATE.PLAYING) return;
+
+            mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            let currentPoint = new THREE.Vector3();
+            raycaster.ray.intersectPlane(dragPlane, currentPoint);
+            if (!currentPoint) return;
+
+            let delta = currentPoint.clone().sub(dragStartPointWorld);
+            if (!isRotatingLayer && delta.length() > 0.1) {
+                let maxDot = -Infinity;
+                const dirs = [
+                    new THREE.Vector3(1,0,0), new THREE.Vector3(-1,0,0),
+                    new THREE.Vector3(0,1,0), new THREE.Vector3(0,-1,0),
+                    new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,-1)
+                ];
+                let normalizedDelta = delta.clone().normalize();
+                for (let d of dirs) {
+                    if (Math.abs(d.dot(intersectedFaceNormal)) > 0.5) continue;
+                    let dot = normalizedDelta.dot(d);
+                    if (dot > maxDot) { maxDot = dot; bestDir = d; }
+                }
+                
+                rotationAxis = new THREE.Vector3().crossVectors(intersectedFaceNormal, bestDir).normalize().round();
+                let axisName = Math.abs(rotationAxis.x) > 0.5 ? 'x' : (Math.abs(rotationAxis.y) > 0.5 ? 'y' : 'z');
+                let layerCoord = Math.round(intersectedCubicle.position[axisName] / SPACING) * SPACING;
+
+                cubicles.forEach(c => { if (Math.abs(c.position[axisName] - layerCoord) < 0.1) rotationGroup.attach(c); });
+                isRotatingLayer = true;
+            }
+
+            if (isRotatingLayer) {
+                rotationAngle = delta.dot(bestDir) * 1.5;
+                rotationGroup.setRotationFromAxisAngle(rotationAxis, rotationAngle);
+            }
+        });
+
+        window.addEventListener('pointerup', (e) => {
+            if (isAnimating || gameState !== STATE.PLAYING) return;
+
+            if (currentPhase === PHASE.PLACE) {
+                let dx = e.clientX - downPos.x, dy = e.clientY - downPos.y;
+                if (Math.sqrt(dx*dx + dy*dy) < 5) {
+                    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                    raycaster.setFromCamera(mouse, camera);
+                    let intersects = raycaster.intersectObjects(cubicles);
+                    
+                    if (intersects.length > 0) {
+                        let obj = intersects[0].object;
+                        let matIndex = intersects[0].face.materialIndex;
+                        
+                        if (obj.userData.faces[matIndex].owner === null && isOuterFace(obj, obj.userData.faces[matIndex].localNormal)) {
+                            
+                            obj.userData.faces[matIndex].owner = currentPlayer.id;
+                            obj.userData.faces[matIndex].skill = selectedSkillId;
+                            obj.material[matIndex].map = getFaceTexture(currentPlayer.id, selectedSkillId);
+                            obj.material[matIndex].needsUpdate = true;
+                            
+                            if (selectedSkillId !== 'NORMAL') {
+                                skillCooldowns[currentPlayer.id][selectedSkillId] = SKILLS[selectedSkillId].cd;
+                            }
+
+                            if (selectedSkillId !== 'NORMAL' && selectedSkillId !== 'DESTROY') {
+                                applyOnPlaceSkill(selectedSkillId, currentPlayer.id, obj, matIndex);
+                            }
+
+                            if (selectedSkillId === 'DESTROY') {
+                                let opponent = currentPlayer.id === 'P1' ? 'P2' : 'P1';
+                                let hasTarget = false;
+                                for (let c of cubicles) {
+                                    for (let i=0; i<6; i++) {
+                                        let face = c.userData.faces[i];
+                                        if (face.owner === opponent && face.skill === 'NORMAL' && isOuterFace(c, face.localNormal)) {
+                                            hasTarget = true; break;
+                                        }
+                                    }
+                                    if (hasTarget) break;
+                                }
+
+                                if (hasTarget) {
+                                    currentPhase = PHASE.DESTROY_SELECT;
+                                    selectedSkillId = 'NORMAL';
+                                    updateUI();
+                                    return;
+                                } else {
+                                    showFloatingText("対象なし", currentPlayer.id);
+                                }
+                            }
+
+                            selectedSkillId = 'NORMAL';
+                            updateUI();
+                            nextPhaseProcess();
+                        }
+                    }
+                }
+            } else if (currentPhase === PHASE.DESTROY_SELECT || currentPhase === PHASE.DESTROY_ANY_SELECT) {
+                let dx = e.clientX - downPos.x, dy = e.clientY - downPos.y;
+                if (Math.sqrt(dx*dx + dy*dy) < 5) {
+                    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+                    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+                    raycaster.setFromCamera(mouse, camera);
+                    let intersects = raycaster.intersectObjects(cubicles);
+                    
+                    if (intersects.length > 0) {
+                        let obj = intersects[0].object;
+                        let matIndex = intersects[0].face.materialIndex;
+                        let face = obj.userData.faces[matIndex];
+                        let opponent = currentPlayer.id === 'P1' ? 'P2' : 'P1';
+                        
+                        let isValidTarget = false;
+                        if (currentPhase === PHASE.DESTROY_SELECT) {
+                            isValidTarget = (face.owner === opponent && face.skill === 'NORMAL' && isOuterFace(obj, face.localNormal));
+                        } else {
+                            isValidTarget = (face.owner === opponent && isOuterFace(obj, face.localNormal));
+                        }
+
+                        if (isValidTarget) {
+                            face.owner = null;
+                            face.skill = null;
+                            obj.material[matIndex].map = texBlank;
+                            obj.material[matIndex].needsUpdate = true;
+                            showFloatingText("DESTROY!", currentPlayer.id);
+                            
+                            if (currentPhase === PHASE.DESTROY_ANY_SELECT) {
+                                pendingDestroyAny--;
+                                if (pendingDestroyAny > 0) {
+                                    updateUI();
+                                } else {
+                                    currentPhase = PHASE.PLACE;
+                                    selectedSkillId = 'NORMAL';
+                                    updateUI();
+                                }
+                            } else {
+                                nextPhaseProcess();
+                            }
+                        }
+                    }
+                }
+            } else if (currentPhase === PHASE.ROTATE) {
+                if (isDraggingCube) {
+                    isDraggingCube = false;
+                    controls.enabled = true;
+                    if (isRotatingLayer) {
+                        let targetAngle = Math.round(rotationAngle / (Math.PI / 2)) * (Math.PI / 2);
+                        animateRotation(targetAngle);
+                    }
+                }
+            }
+        });
+
+        function animateRotation(targetAngle) {
+            isAnimating = true;
+            let t = 0, startAngle = rotationAngle;
+            function anim() {
+                t += 0.1;
+                if (t >= 1) {
+                    rotationGroup.setRotationFromAxisAngle(rotationAxis, targetAngle);
+                    while(rotationGroup.children.length > 0) {
+                        let c = rotationGroup.children[0];
+                        cubeGroup.attach(c);
+                        snapCubicle(c);
+                    }
+                    rotationGroup.rotation.set(0,0,0);
+                    isAnimating = false;
+                    if (targetAngle !== 0) nextPhaseProcess();
+                    return;
+                }
+                let easeT = t * (2 - t); 
+                rotationGroup.setRotationFromAxisAngle(rotationAxis, startAngle + (targetAngle - startAngle) * easeT);
+                requestAnimationFrame(anim);
+            }
+            anim();
+        }
+
+        // --- UIボタンイベント ---
+        startBtn.addEventListener('click', startGame);
+        
+        const returnToTitle = () => { showTitleScreen(); };
+        toTitleBtn.addEventListener('click', returnToTitle);
+        pauseToTitleBtn.addEventListener('click', returnToTitle);
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' || e.key === 'Esc') {
+                if (gameState === STATE.PLAYING || gameState === STATE.PAUSED) togglePause();
+            }
+        });
+
+        pauseBtnUI.addEventListener('click', () => {
+            if (gameState === STATE.PLAYING || gameState === STATE.PAUSED) togglePause();
+        });
+        resumeBtn.addEventListener('click', togglePause);
+        replayBtn.addEventListener('click', () => {
+            pauseModal.classList.add('hidden');
+            gameOverModal.classList.add('hidden');
+            resetGameState();
+        });
+        document.getElementById('skipBtn').addEventListener('click', () => {
+            if (isAnimating) return;
+            if (currentPhase === PHASE.ROTATE || currentPhase === PHASE.DESTROY_SELECT || currentPhase === PHASE.DESTROY_ANY_SELECT) {
+                if (currentPhase === PHASE.DESTROY_ANY_SELECT) {
+                    pendingDestroyAny = 0;
+                    currentPhase = PHASE.PLACE;
+                    selectedSkillId = 'NORMAL';
+                    updateUI();
+                    return;
+                }
+                nextPhaseProcess();
+            }
+        });
+        document.getElementById('restartBtn').addEventListener('click', () => {
+            gameOverModal.classList.add('hidden');
+            resetGameState();
+        });
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (gameState === STATE.TITLE) {
+                cubeGroup.rotation.y += 0.005;
+                cubeGroup.rotation.x += 0.003;
+            }
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        showTitleScreen();
+        animate();
+
+    </script>
+</body>
+</html>
